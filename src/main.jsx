@@ -139,7 +139,8 @@ function App(){
   const [odds,setOdds]=useState(2.10),[stake,setStake]=useState(100000);
   const [matches,setMatches]=useState(initialMatches);
   const [history,setHistory]=useState(initialHistory);
-  const [notice,setNotice]=useState('');\n  const [backtest,setBacktest]=useState(null);
+  const [notice,setNotice]=useState('');
+  const [backtest,setBacktest]=useState(null);
   const result=useMemo(()=>calculate(Number(lh),Number(la),Number(rho)),[lh,la,rho]);
   const lambdaEstimate=useMemo(()=>home&&away&&home!==away?estimateLambdas(history,home,away):null,[history,home,away]);
   useEffect(()=>{if(lambdaEstimate){setLh(Number(lambdaEstimate.home.toFixed(2)));setLa(Number(lambdaEstimate.away.toFixed(2)));}},[lambdaEstimate]);
