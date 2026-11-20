@@ -28,7 +28,7 @@ function calculate(lh, la){
 const initialMatches = () => { try{return JSON.parse(localStorage.getItem('fal_matches')||'[]')}catch{return []} };
 function App(){
   const [tab,setTab]=useState('overview');
-  const [home,setHome]=useState('Home Team'),[away,setAway]=useState('Away Team');
+  const [home,setHome]=useState(''),[away,setAway]=useState('');
   const [lh,setLh]=useState(1.55),[la,setLa]=useState(1.10);
   const [odds,setOdds]=useState(2.10),[stake,setStake]=useState(100000);
   const [matches,setMatches]=useState(initialMatches);
@@ -38,6 +38,8 @@ function App(){
   const ev=p*Number(odds)-1;
   const b=Number(odds)-1, kelly=b>0?clamp((b*p-(1-p))/b,0,1):0;
   function saveMatch(){
+    if(!home||!away){setNotice('Pilih tim kandang dan tim tandang terlebih dahulu.');return;}
+    if(home===away){setNotice('Tim kandang dan tandang tidak boleh sama.');return;}
     const item={id:Date.now(),date:new Date().toISOString().slice(0,10),home,away,lambda_home:Number(lh),lambda_away:Number(la),p_home:result.home,p_draw:result.draw,p_away:result.away};
     const next=[item,...matches]; setMatches(next); localStorage.setItem('fal_matches',JSON.stringify(next)); setNotice('Analisis tersimpan di perangkat.'); setTimeout(()=>setNotice(''),2500);
   }
