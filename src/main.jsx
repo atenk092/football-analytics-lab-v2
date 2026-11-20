@@ -38,7 +38,7 @@ function calculate(lh, la, rho=0.06){
 }
 
 function runWalkForwardBacktest(history, limit=500){
-  const dated=history.filter(m=>/^\\d{4}-\\d{2}-\\d{2}$/.test(String(m.date||''))&&Number.isInteger(Number(m.hg))&&Number.isInteger(Number(m.ag))&&Number(m.hg)>=0&&Number(m.ag)>=0)
+  const dated=history.filter(m=>/^\d{4}-\d{2}-\d{2}$/.test(String(m.date||''))&&Number.isInteger(Number(m.hg))&&Number.isInteger(Number(m.ag))&&Number(m.hg)>=0&&Number(m.ag)>=0)
     .slice().sort((a,b)=>a.date.localeCompare(b.date));
   if(dated.length<10)return {error:'Butuh minimal 10 hasil historis bertanggal untuk memulai backtest.'};
   const start=Math.max(0,dated.length-limit);
