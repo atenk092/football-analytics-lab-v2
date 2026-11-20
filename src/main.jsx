@@ -37,6 +37,27 @@ function calculate(lh, la, rho=0.06){
   return {home,draw,away,doubleChance:{homeDraw:home+draw,homeAway:home+away,drawAway:draw+away},totals,teamTotals:{home:teamTotals('h'),away:teamTotals('a')},handicaps,btts:{yes:bttsYes,no:1-bttsYes},goals:{odd,even:1-odd},score:score.sort((x,y)=>y.p-x.p).slice(0,5)};
 }
 
+
+function calculateLive(lh,la,minute,scoreHome,scoreAway,redHome,redAway,rho=0.06){
+  const remaining=clamp((90-minute)/90,0,1);
+  const stateHome=scoreHome<scoreAway?1.16:scoreHome>scoreAway?0.92:1;
+  const stateAway=scoreAway<scoreHome?1.16:scoreAway>scoreHome?0.92:1;
+  const liveHome=lh*remaining*stateHome*(redHome?0.66:1)*(redAway?1.16:1);
+  const liveAway=la*remaining*stateAway*(redAway?0.66:1)*(redHome?1.16:1);
+  const dist=[];let total=0;
+  for(let h=0;h<=10;h++)for(let a=0;a<=10;a++){
+    let tau=1;
+    if(h===0&&a===0)tau=1-liveHome*liveAway*rho;
+    else if(h===0&&a===1)tau=1+liveHome*rho;
+    else if(h===1&&a===0)tau=1+liveAway*rho;
+    else if(h===1&&a===1)tau=1-rho;
+    const p=Math.max(0,pois(h,liveHome)*pois(a,liveAway)*tau);
+    dist.push({h:scoreHome+h,a:scoreAway+a,p});total+=p;
+  }
+  const prob=fn=>dist.reduce((sum,x)=>sum+(fn(x)?x.p/total:0),0);
+  const home=prob(x=>x.h>x.a),draw=prob(x=>x.h===x.a),away=prob(x=>x.h<x.a);
+  return {liveHome,liveAway,home,draw,away,over25:prob(x=>x.h+x.a>=3),under25:prob(x=>x.h+x.a<=2),btts:prob(x=>x.h>0&&x.a>0),score:dist.map(x=>({...x,p:x.p/total})).sort((x,y)=>y.p-x.p).slice(0,5)};
+}
 function runWalkForwardBacktest(history, limit=500){
   const dated=history.filter(m=>/^\d{4}-\d{2}-\d{2}$/.test(String(m.date||''))&&Number.isInteger(Number(m.hg))&&Number.isInteger(Number(m.ag))&&Number(m.hg)>=0&&Number(m.ag)>=0)
     .slice().sort((a,b)=>a.date.localeCompare(b.date));
@@ -140,13 +161,13 @@ function App(){
   const [matches,setMatches]=useState(initialMatches);
   const [history,setHistory]=useState(initialHistory);
   const [notice,setNotice]=useState('');
-  const [backtest,setBacktest]=useState(null);
+  const [backtest,setBacktest]=useState(null);\n  const [liveMinute,setLiveMinute]=useState(60),[liveHomeScore,setLiveHomeScore]=useState(0),[liveAwayScore,setLiveAwayScore]=useState(0),[liveHomeRed,setLiveHomeRed]=useState(0),[liveAwayRed,setLiveAwayRed]=useState(0);
   const result=useMemo(()=>calculate(Number(lh),Number(la),Number(rho)),[lh,la,rho]);
   const lambdaEstimate=useMemo(()=>home&&away&&home!==away?estimateLambdas(history,home,away):null,[history,home,away]);
   useEffect(()=>{if(lambdaEstimate){setLh(Number(lambdaEstimate.home.toFixed(2)));setLa(Number(lambdaEstimate.away.toFixed(2)));}},[lambdaEstimate]);
   const lambdaStatus=!home||!away?'Pilih kedua tim untuk menghitung lambda otomatis.':home===away?'Pilih dua tim yang berbeda.':lambdaEstimate?'Otomatis · '+lambdaEstimate.homeSample+' laga kandang/tandang untuk tim kandang, '+lambdaEstimate.awaySample+' untuk tim tandang · bobot 2 tahun.':'Data historis belum cukup: perlu minimal 5 hasil valid dan 3 laga per tim. Impor CSV terlebih dahulu.';
 
-  const p=Number(result.totals[2].over);
+  const liveResult=useMemo(()=>home&&away&&home!==away?calculateLive(Number(lh),Number(la),Number(liveMinute),Number(liveHomeScore),Number(liveAwayScore),Number(liveHomeRed),Number(liveAwayRed),Number(rho)):null,[home,away,lh,la,liveMinute,liveHomeScore,liveAwayScore,liveHomeRed,liveAwayRed,rho]);\n  const p=Number(result.totals[2].over);
   const ev=p*Number(odds)-1;
   const b=Number(odds)-1, kelly=b>0?clamp((b*p-(1-p))/b,0,1):0;
   function saveMatch(){
@@ -204,10 +225,10 @@ function App(){
   return <div className="app-shell">
     <aside className="sidebar"><div className="brand"><div className="brand-mark">F</div><div><b>FOOTBALL</b><span>ANALYTICS LAB</span></div></div>
       <div className="nav-label">WORKSPACE</div>
-      {[['overview','▦','Dashboard'],['analysis','◎','Match Analysis'],['database','▤','Match Database'],['backtest','◷','Backtesting'],['tools','⌁','EV & Kelly']].map(([id,ic,label])=><button key={id} className={'nav-item '+(tab===id?'active':'')} onClick={()=>setTab(id)}><span>{ic}</span>{label}</button>)}
+      {[['overview','▦','Dashboard'],['analysis','◎','Match Analysis'],['live','◉','Live Analysis'],['database','▤','Match Database'],['backtest','◷','Backtesting'],['tools','⌁','EV & Kelly']].map(([id,ic,label])=><button key={id} className={'nav-item '+(tab===id?'active':'')} onClick={()=>setTab(id)}><span>{ic}</span>{label}</button>)}
       <div className="sidebar-bottom"><span className="pulse"></span> LOCAL MODE <small>v1.0.0 MVP</small></div>
     </aside>
-    <main className="main"><header className="topbar"><div><span className="eyebrow">FOOTBALL INTELLIGENCE / WORKSPACE</span><h1>{({overview:'Dashboard',analysis:'Match Analysis',database:'Match Database',tools:'EV & Kelly',backtest:'Backtesting'})[tab]}</h1></div><div className="top-actions"><span className="local-pill">● Offline-ready</span><div className="avatar">FA</div></div></header>
+    <main className="main"><header className="topbar"><div><span className="eyebrow">FOOTBALL INTELLIGENCE / WORKSPACE</span><h1>{({overview:'Dashboard',analysis:'Match Analysis',database:'Match Database',tools:'EV & Kelly',backtest:'Backtesting',live:'Live Analysis'})[tab]}</h1></div><div className="top-actions"><span className="local-pill">● Offline-ready</span><div className="avatar">FA</div></div></header>
     {notice&&<div className="notice">{notice}</div>}
     {tab==='overview'&&<><section className="welcome"><div><div className="eyebrow mint">PERFORMANCE OVERVIEW</div><h2>Data first. <em>Decisions smarter.</em></h2><p>Ruang kerja analisis pertandingan berbasis probabilitas dan statistik.</p></div><div className="welcome-ball">◉</div></section>
       <section className="stat-grid"><Stat label="SAVED ANALYSES" value={matches.length} hint="Tersimpan di perangkat"/><Stat label="MODEL ENGINE" value="Poisson" hint="Independent goal model"/><Stat label="DATA MODE" value="Manual" hint="API belum terhubung"/></section>
@@ -228,6 +249,28 @@ function App(){
         <div className="market-card handicap-card"><h4>Asian handicap · perspektif tim kandang</h4><div className="handicap-list">{result.handicaps.map(x=><div className="handicap-line" key={x.line}><b>{x.line>0?'+':''}{x.line.toFixed(1)}</b><span>Menang {fmt(x.win*100,1)}%</span><span>Push {fmt(x.push*100,1)}%</span><span>Kalah {fmt(x.lose*100,1)}%</span></div>)}</div></div>
       </section>
       <section className="disclaimer">Semua pasar dihitung dari distribusi skor Poisson dengan koreksi Dixon-Coles. Asian handicap menampilkan peluang menang/push/kalah untuk garis handicap tim kandang. Garis total dan team total yang ditampilkan adalah garis setengah gol, sehingga tidak memiliki hasil push. Distribusi skor dibatasi 0–10 gol per tim dan dinormalisasi kembali; hasil bukan jaminan.</section></>}
+    {tab==='live'&&<><section className="panel"><div className="panel-head"><div><div className="eyebrow">IN-PLAY MANUAL MODEL</div><h3>Input kondisi pertandingan</h3></div><span className="tag">LIVE MODEL · BASIC</span></div>
+      <p className="muted">Pilih tim dan pastikan lambda otomatis sudah tersedia di Match Analysis. Masukkan menit, skor berjalan, dan kartu merah untuk memperbarui estimasi peluang hingga akhir pertandingan.</p>
+      <div className="form-grid">
+        <Field label="MENIT PERTANDINGAN"><input type="number" min="0" max="90" value={liveMinute} onChange={e=>setLiveMinute(clamp(Number(e.target.value)||0,0,90))}/></Field>
+        <Field label="SKOR KANDANG"><input type="number" min="0" max="20" value={liveHomeScore} onChange={e=>setLiveHomeScore(clamp(Number(e.target.value)||0,0,20))}/></Field>
+        <Field label="SKOR TANDANG"><input type="number" min="0" max="20" value={liveAwayScore} onChange={e=>setLiveAwayScore(clamp(Number(e.target.value)||0,0,20))}/></Field>
+        <Field label="KARTU MERAH KANDANG"><select value={liveHomeRed} onChange={e=>setLiveHomeRed(Number(e.target.value))}><option value="0">Tidak ada</option><option value="1">1 kartu merah</option></select></Field>
+        <Field label="KARTU MERAH TANDANG"><select value={liveAwayRed} onChange={e=>setLiveAwayRed(Number(e.target.value))}><option value="0">Tidak ada</option><option value="1">1 kartu merah</option></select></Field>
+      </div>
+      {!home||!away||!lambdaEstimate?<div className="disclaimer">Pilih tim dan impor data historis yang cukup di Match Analysis terlebih dahulu agar lambda dasar tersedia.</div>:<div className="live-results">
+        <div className="live-match-title"><b>{home}</b><strong>{liveHomeScore} — {liveAwayScore}</strong><b>{away}</b></div>
+        <div className="live-lambda">Estimasi gol tersisa · {fmt(liveResult.liveHome,2)} kandang / {fmt(liveResult.liveAway,2)} tandang</div>
+        <div className="prob-row"><Prob label="HOME WIN" value={liveResult.home}/><Prob label="DRAW" value={liveResult.draw}/><Prob label="AWAY WIN" value={liveResult.away}/></div>
+        <div className="bar"><i style={{width:(liveResult.home*100)+'%'}}/><i style={{width:(liveResult.draw*100)+'%'}}/><i style={{width:(liveResult.away*100)+'%'}}/></div>
+        <div className="market-grid live-market-grid">
+          <div className="market-card"><h4>Final total goals 2.5</h4><div className="market-line"><span>Over 2.5</span><b>{fmt(liveResult.over25*100,2)}%</b></div><div className="market-line"><span>Under 2.5</span><b>{fmt(liveResult.under25*100,2)}%</b></div></div>
+          <div className="market-card"><h4>Both teams to score</h4><div className="market-line"><span>BTTS Yes</span><b>{fmt(liveResult.btts*100,2)}%</b></div><div className="market-line"><span>BTTS No</span><b>{fmt((1-liveResult.btts)*100,2)}%</b></div></div>
+        </div>
+        <h4 className="backtest-heading">Skor akhir paling mungkin</h4>{liveResult.score.map((x,i)=><div className="score-line" key={i}><span className="rank">0{i+1}</span><b>{x.h} - {x.a}</b><div className="mini-track"><i style={{width:(x.p/liveResult.score[0].p*100)+'%'}}/></div><strong>{fmt(x.p*100,2)}%</strong></div>)}
+      </div>}
+      <div className="disclaimer">Model live dasar ini memakai lambda pre-match sebagai baseline, lalu menyesuaikan sisa waktu, kondisi tertinggal/unggul, dan kartu merah. Input live dilakukan manual; belum ada feed skor/odds real-time. Asumsi durasi normal 90 menit, belum memodelkan injury time, red card timing, pergantian pemain, atau perubahan tempo aktual.</div>
+    </section></>}
     {tab==='backtest'&&<section className="panel"><div className="panel-head"><div><div className="eyebrow">OUT-OF-SAMPLE VALIDATION</div><h3>Walk-forward backtesting</h3></div><span className="tag">NO LOOK-AHEAD</span></div>
       <p className="muted">Setiap pertandingan diprediksi hanya memakai hasil historis yang tanggalnya lebih awal. Pertandingan pada tanggal yang sama tidak dipakai sebagai data latihan untuk satu sama lain. Pengujian dibatasi maksimal 500 pertandingan terbaru agar tetap ringan di Android.</p>
       <div className="button-row"><button className="primary" onClick={()=>setBacktest(runWalkForwardBacktest(history))}>Jalankan backtest</button><button className="secondary" onClick={()=>setBacktest(null)}>Reset hasil</button></div>
