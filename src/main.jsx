@@ -91,8 +91,10 @@ function App(){
         const added=[];
         for(const row of rows){
           const home=pick(row,['home_team','hometeam','home']);const away=pick(row,['away_team','awayteam','away']);
-          const hg=Number(pick(row,['home_goals','fthg','hg']));const ag=Number(pick(row,['away_goals','ftag','ag']));
-          if(!home||!away||!Number.isInteger(hg)||!Number.isInteger(ag)||hg<0||ag<0)continue;
+          const hgRaw=pick(row,['home_goals','fthg','hg']);const agRaw=pick(row,['away_goals','ftag','ag']);
+          if(!home||!away||hgRaw===''||agRaw==='')continue;
+          const hg=Number(hgRaw),ag=Number(agRaw);
+          if(!Number.isInteger(hg)||!Number.isInteger(ag)||hg<0||ag<0)continue;
           added.push({id:'hist-'+Date.now()+'-'+added.length,date:pick(row,['date']),league:pick(row,['league']),home,away,hg,ag});
         }
         const next=[...history,...added];setHistory(next);localStorage.setItem('fal_history',JSON.stringify(next));
