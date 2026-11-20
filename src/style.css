@@ -5,3 +5,5 @@
 
 .backtest-meta{margin:18px 0 10px;color:#91a4b5;font:11px 'DM Mono';}.backtest-grid{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:12px;margin:14px 0}.backtest-grid .market-card span{display:block;color:#8298aa;font:9px 'DM Mono';letter-spacing:.7px}.backtest-grid .market-card b{display:block;margin-top:10px;color:#51d8b4;font:700 21px Manrope}.backtest-heading{font-size:13px;margin:22px 0 8px;color:#dce7ee}
 @media(max-width:600px){.backtest-grid{grid-template-columns:repeat(2,minmax(0,1fr))}.backtest-grid .market-card{padding:12px}.backtest-grid .market-card b{font-size:18px}}
+
+.live-results{margin-top:20px;padding:18px;border:1px solid rgba(81,216,180,.2);border-radius:14px;background:rgba(14,36,43,.45)}.live-match-title{display:flex;align-items:center;justify-content:space-between;gap:12px;color:#dce7ee;font-size:13px}.live-match-title strong{font:700 24px Manrope;color:#51d8b4;white-space:nowrap}.live-lambda{margin:10px 0 20px;color:#91a4b5;font:11px 'DM Mono'}.live-market-grid{margin-top:16px}.live-results .prob-row{margin-top:20px}
