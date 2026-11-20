@@ -114,7 +114,7 @@ function App(){
   useEffect(()=>{if(lambdaEstimate){setLh(Number(lambdaEstimate.home.toFixed(2)));setLa(Number(lambdaEstimate.away.toFixed(2)));}},[lambdaEstimate]);
   const lambdaStatus=!home||!away?'Pilih kedua tim untuk menghitung lambda otomatis.':home===away?'Pilih dua tim yang berbeda.':lambdaEstimate?'Otomatis · '+lambdaEstimate.homeSample+' laga kandang/tandang untuk tim kandang, '+lambdaEstimate.awaySample+' untuk tim tandang · bobot 2 tahun.':'Data historis belum cukup: perlu minimal 5 hasil valid dan 3 laga per tim. Impor CSV terlebih dahulu.';
 
-  const p=Number(result.over25);
+  const p=Number(result.totals[2].over);
   const ev=p*Number(odds)-1;
   const b=Number(odds)-1, kelly=b>0?clamp((b*p-(1-p))/b,0,1):0;
   function saveMatch(){
