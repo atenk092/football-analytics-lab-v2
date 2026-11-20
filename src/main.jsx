@@ -161,13 +161,15 @@ function App(){
   const [matches,setMatches]=useState(initialMatches);
   const [history,setHistory]=useState(initialHistory);
   const [notice,setNotice]=useState('');
-  const [backtest,setBacktest]=useState(null);\n  const [liveMinute,setLiveMinute]=useState(60),[liveHomeScore,setLiveHomeScore]=useState(0),[liveAwayScore,setLiveAwayScore]=useState(0),[liveHomeRed,setLiveHomeRed]=useState(0),[liveAwayRed,setLiveAwayRed]=useState(0);
+  const [backtest,setBacktest]=useState(null);
+  const [liveMinute,setLiveMinute]=useState(60),[liveHomeScore,setLiveHomeScore]=useState(0),[liveAwayScore,setLiveAwayScore]=useState(0),[liveHomeRed,setLiveHomeRed]=useState(0),[liveAwayRed,setLiveAwayRed]=useState(0);
   const result=useMemo(()=>calculate(Number(lh),Number(la),Number(rho)),[lh,la,rho]);
   const lambdaEstimate=useMemo(()=>home&&away&&home!==away?estimateLambdas(history,home,away):null,[history,home,away]);
   useEffect(()=>{if(lambdaEstimate){setLh(Number(lambdaEstimate.home.toFixed(2)));setLa(Number(lambdaEstimate.away.toFixed(2)));}},[lambdaEstimate]);
   const lambdaStatus=!home||!away?'Pilih kedua tim untuk menghitung lambda otomatis.':home===away?'Pilih dua tim yang berbeda.':lambdaEstimate?'Otomatis · '+lambdaEstimate.homeSample+' laga kandang/tandang untuk tim kandang, '+lambdaEstimate.awaySample+' untuk tim tandang · bobot 2 tahun.':'Data historis belum cukup: perlu minimal 5 hasil valid dan 3 laga per tim. Impor CSV terlebih dahulu.';
 
-  const liveResult=useMemo(()=>home&&away&&home!==away?calculateLive(Number(lh),Number(la),Number(liveMinute),Number(liveHomeScore),Number(liveAwayScore),Number(liveHomeRed),Number(liveAwayRed),Number(rho)):null,[home,away,lh,la,liveMinute,liveHomeScore,liveAwayScore,liveHomeRed,liveAwayRed,rho]);\n  const p=Number(result.totals[2].over);
+  const liveResult=useMemo(()=>home&&away&&home!==away?calculateLive(Number(lh),Number(la),Number(liveMinute),Number(liveHomeScore),Number(liveAwayScore),Number(liveHomeRed),Number(liveAwayRed),Number(rho)):null,[home,away,lh,la,liveMinute,liveHomeScore,liveAwayScore,liveHomeRed,liveAwayRed,rho]);
+  const p=Number(result.totals[2].over);
   const ev=p*Number(odds)-1;
   const b=Number(odds)-1, kelly=b>0?clamp((b*p-(1-p))/b,0,1):0;
   function saveMatch(){
