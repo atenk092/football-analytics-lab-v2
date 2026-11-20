@@ -49,18 +49,54 @@ function parseCsvRows(text){
 }
 const initialHistory=()=>{try{return JSON.parse(localStorage.getItem('fal_history')||'[]')}catch{return []}};
 function estimateLambdas(history,home,away){
-  const valid=history.filter(m=>Number.isFinite(Number(m.hg))&&Number.isFinite(Number(m.ag)));
+  const homeLeague=TEAM_OPTIONS.find(x=>x.team===home)?.league;
+  const awayLeague=TEAM_OPTIONS.find(x=>x.team===away)?.league;
+  const sameLeague=homeLeague&&homeLeague===awayLeague&&homeLeague!=='Other';
+  const today=new Date();
+  const valid=history.filter(m=>{
+    if(!Number.isFinite(Number(m.hg))||!Number.isFinite(Number(m.ag))||Number(m.hg)<0||Number(m.ag)<0)return false;
+    if(sameLeague&&m.league&&m.league!==homeLeague)return false;
+    if(m.date){const d=new Date(m.date);if(!Number.isNaN(d.getTime())&&d>today)return false;}
+    return true;
+  }).map(m=>{
+    const d=m.date?new Date(m.date):null;
+    const age=d&&!Number.isNaN(d.getTime())?Math.max(0,(today-d)/86400000):365;
+    return {...m,w:Math.exp(-Math.LN2*age/730)};
+  });
   if(valid.length<5)return null;
-  const avgH=valid.reduce((s,m)=>s+Number(m.hg),0)/valid.length;
-  const avgA=valid.reduce((s,m)=>s+Number(m.ag),0)/valid.length;
-  const stats=(team,side)=>{const games=valid.filter(m=>side==='home'?m.home===team:m.away===team);if(games.length<3)return null;
-    return {scored:games.reduce((s,m)=>s+Number(side==='home'?m.hg:m.ag),0)/games.length,conceded:games.reduce((s,m)=>s+Number(side==='home'?m.ag:m.hg),0)/games.length};};
-  const hs=stats(home,'home'),ha=stats(home,'away'),as=stats(away,'away'),ah=stats(away,'home');
-  const hAttack=hs?hs.scored/Math.max(avgH,.2):ha?ha.scored/Math.max(avgA,.2):1;
-  const aDefense=ah?ah.conceded/Math.max(avgH,.2):as?as.conceded/Math.max(avgA,.2):1;
-  const aAttack=as?as.scored/Math.max(avgA,.2):ah?ah.scored/Math.max(avgH,.2):1;
-  const hDefense=hs?hs.conceded/Math.max(avgA,.2):ha?ha.conceded/Math.max(avgH,.2):1;
-  return {home:clamp(avgH*hAttack*aDefense,.15,4.5),away:clamp(avgA*aAttack*hDefense,.15,4.5),sample:valid.length};
+  const sumW=valid.reduce((s,m)=>s+m.w,0);
+  const avgH=valid.reduce((s,m)=>s+m.hg*m.w,0)/sumW;
+  const avgA=valid.reduce((s,m)=>s+m.ag*m.w,0)/sumW;
+  const teamStats=team=>{
+    const games=valid.filter(m=>m.home===team||m.away===team);
+    const weight=games.reduce((s,m)=>s+m.w,0);
+    if(weight<2.5)return null;
+    let scored=0,conceded=0,expectedFor=0,expectedAgainst=0;
+    for(const m of games){
+      const atHome=m.home===team;
+      scored+=(atHome?m.hg:m.ag)*m.w;
+      conceded+=(atHome?m.ag:m.hg)*m.w;
+      expectedFor+=(atHome?avgH:avgA)*m.w;
+      expectedAgainst+=(atHome?avgA:avgH)*m.w;
+    }
+    const shrink=weight/(weight+5);
+    return {
+      attack:1+((scored/Math.max(expectedFor,.2))-1)*shrink,
+      defense:1+((conceded/Math.max(expectedAgainst,.2))-1)*shrink,
+      sample:games.length
+    };
+  };
+  const h=teamStats(home),a=teamStats(away);
+  if(!h||!a)return null;
+  return {
+    home:clamp(avgH*h.attack*a.defense,.15,4.5),
+    away:clamp(avgA*a.attack*h.defense,.15,4.5),
+    sample:valid.length,
+    homeSample:h.sample,
+    awaySample:a.sample,
+    weightedSample:sumW,
+    league:sameLeague?homeLeague:'gabungan data'
+  };
 }
 const initialMatches = () => { try{return JSON.parse(localStorage.getItem('fal_matches')||'[]')}catch{return []} };
 function App(){
@@ -74,7 +110,7 @@ function App(){
   const result=useMemo(()=>calculate(Number(lh),Number(la),Number(rho)),[lh,la,rho]);
   const lambdaEstimate=useMemo(()=>home&&away&&home!==away?estimateLambdas(history,home,away):null,[history,home,away]);
   useEffect(()=>{if(lambdaEstimate){setLh(Number(lambdaEstimate.home.toFixed(2)));setLa(Number(lambdaEstimate.away.toFixed(2)));}},[lambdaEstimate]);
-  const lambdaStatus=!home||!away?'Pilih kedua tim untuk menghitung lambda otomatis.':home===away?'Pilih dua tim yang berbeda.':lambdaEstimate?'Otomatis dari '+lambdaEstimate.sample+' hasil historis.':'Data historis belum cukup (minimal 5 pertandingan). Impor CSV terlebih dahulu.';
+  const lambdaStatus=!home||!away?'Pilih kedua tim untuk menghitung lambda otomatis.':home===away?'Pilih dua tim yang berbeda.':lambdaEstimate?'Otomatis · '+lambdaEstimate.homeSample+' laga kandang/tandang untuk tim kandang, '+lambdaEstimate.awaySample+' untuk tim tandang · bobot 2 tahun.':'Data historis belum cukup: perlu minimal 5 hasil valid dan 3 laga per tim. Impor CSV terlebih dahulu.';
 
   const p=Number(result.over25);
   const ev=p*Number(odds)-1;
