@@ -70,7 +70,7 @@ function runWalkForwardBacktest(history, limit=500){
     const target=dated[i];
     while(trainEnd<dated.length&&dated[trainEnd].date<target.date)trainEnd++;
     if(trainEnd<5)continue;
-    const estimate=estimateLambdas(dated.slice(0,trainEnd),target.home,target.away);
+    const estimate=estimateLambdas(dated.slice(0,trainEnd),target.home,target.away,target.date);
     if(!estimate)continue;
     const prediction=calculate(estimate.home,estimate.away,0.06);
     const actual=Number(target.hg)>Number(target.ag)?0:Number(target.hg)===Number(target.ag)?1:2;
@@ -121,11 +121,11 @@ function parseCsvRows(text){
   return rows;
 }
 const initialHistory=()=>{try{return JSON.parse(localStorage.getItem('fal_history')||'[]')}catch{return []}};
-function estimateLambdas(history,home,away){
+function estimateLambdas(history,home,away,asOf=null){
   const homeLeague=TEAM_OPTIONS.find(x=>x.team===home)?.league;
   const awayLeague=TEAM_OPTIONS.find(x=>x.team===away)?.league;
   const sameLeague=homeLeague&&homeLeague===awayLeague&&homeLeague!=='Other';
-  const today=new Date();
+  const today=asOf?new Date(asOf+'T23:59:59'):new Date();
   const valid=history.filter(m=>{
     if(!Number.isFinite(Number(m.hg))||!Number.isFinite(Number(m.ag))||Number(m.hg)<0||Number(m.ag)<0)return false;
     if(sameLeague&&m.league&&m.league!==homeLeague)return false;
