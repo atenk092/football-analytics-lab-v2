@@ -64,6 +64,7 @@ function runWalkForwardBacktest(history, limit=500){
   if(dated.length<10)return {error:'Butuh minimal 10 hasil historis bertanggal untuk memulai backtest.'};
   const start=Math.max(0,dated.length-limit);
   let trainEnd=0,used=0,correct=0,ouCorrect=0,logLoss=0,brier=0,ouBrier=0;
+  let bets=0,wins=0,profitUnits=0,evSum=0,oddsSum=0;
   const examples=[];
   for(let i=start;i<dated.length;i++){
     const target=dated[i];
@@ -83,11 +84,29 @@ function runWalkForwardBacktest(history, limit=500){
     const pOver=prediction.totals[2].over;
     ouBrier+=Math.pow(pOver-actualOver,2);
     if((pOver>=0.5?1:0)===actualOver)ouCorrect++;
+    const candidates=[];
+    const addBet=(market,selection,prob,odd,won)=>{
+      const price=Number(odd);
+      if(Number.isFinite(price)&&price>1&&Number.isFinite(prob)){
+        const expected=prob*price-1;
+        if(expected>0.03)candidates.push({market,selection,prob,odds:price,ev:expected,won});
+      }
+    };
+    addBet('1X2','Home',prediction.home,target.oddsHome,Number(target.hg)>Number(target.ag));
+    addBet('1X2','Draw',prediction.draw,target.oddsDraw,Number(target.hg)===Number(target.ag));
+    addBet('1X2','Away',prediction.away,target.oddsAway,Number(target.hg)<Number(target.ag));
+    addBet('O/U 2.5','Over',pOver,target.oddsOver25,actualOver===1);
+    addBet('O/U 2.5','Under',prediction.totals[2].under,target.oddsUnder25,actualOver===0);
+    const selected=candidates.sort((a,b)=>b.ev-a.ev)[0];
+    if(selected){
+      bets++;evSum+=selected.ev;oddsSum+=selected.odds;
+      if(selected.won){wins++;profitUnits+=selected.odds-1;}else profitUnits-=1;
+    }
     used++;
     if(examples.length<5)examples.push({date:target.date,home:target.home,away:target.away,score:Number(target.hg)+'-'+Number(target.ag),predicted:['Home','Draw','Away'][predicted],confidence:probs[predicted]});
   }
   if(!used)return {error:'Belum ada pertandingan yang dapat diuji. Pastikan CSV berisi tanggal valid, nama tim konsisten, dan data sebelum tanggal pertandingan mencukupi.'};
-  return {total:dated.length,tested:used,accuracy:correct/used,logLoss:logLoss/used,brier:brier/used,ouAccuracy:ouCorrect/used,ouBrier:ouBrier/used,examples};
+  return {total:dated.length,tested:used,accuracy:correct/used,logLoss:logLoss/used,brier:brier/used,ouAccuracy:ouCorrect/used,ouBrier:ouBrier/used,bets,wins,winRate:bets?wins/bets:0,profitUnits,roi:bets?profitUnits/bets:0,avgEv:bets?evSum/bets:0,avgOdds:bets?oddsSum/bets:0,examples};
 }
 function parseCsvRows(text){
   const rows=[]; let row=[],cell='',quoted=false;
@@ -192,7 +211,13 @@ function App(){
           if(!home||!away||hgRaw===''||agRaw==='')continue;
           const hg=Number(hgRaw),ag=Number(agRaw);
           if(!Number.isInteger(hg)||!Number.isInteger(ag)||hg<0||ag<0)continue;
-          added.push({id:'hist-'+Date.now()+'-'+added.length,date:pick(row,['date']),league:pick(row,['league']),home,away,hg,ag});
+          const readOdd=names=>{const raw=pick(row,names);const value=Number(raw);return raw!==''&&Number.isFinite(value)&&value>1?value:null;};
+          added.push({id:'hist-'+Date.now()+'-'+added.length,date:pick(row,['date']),league:pick(row,['league']),home,away,hg,ag,
+            oddsHome:readOdd(['odds_home','home_odds','odds1','odd_home']),
+            oddsDraw:readOdd(['odds_draw','draw_odds','oddsx','odd_draw']),
+            oddsAway:readOdd(['odds_away','away_odds','odds2','odd_away']),
+            oddsOver25:readOdd(['odds_over25','over25_odds','odds_o25','over_2_5']),
+            oddsUnder25:readOdd(['odds_under25','under25_odds','odds_u25','under_2_5'])});
         }
         const key=m=>[m.date,m.league,m.home,m.away,m.hg,m.ag].join('|').toLowerCase();
         const seen=new Set(history.map(key));const unique=added.filter(m=>{const k=key(m);if(seen.has(k))return false;seen.add(k);return true;});
@@ -203,7 +228,7 @@ function App(){
   }
 
   function exportHistoryCsv(){
-    const rows=[['date','league','home_team','away_team','home_goals','away_goals'],...history.map(m=>[m.date,m.league,m.home,m.away,m.hg,m.ag])];
+    const rows=[['date','league','home_team','away_team','home_goals','away_goals','odds_home','odds_draw','odds_away','odds_over25','odds_under25'],...history.map(m=>[m.date,m.league,m.home,m.away,m.hg,m.ag,m.oddsHome??'',m.oddsDraw??'',m.oddsAway??'',m.oddsOver25??'',m.oddsUnder25??''])];
     const csv=rows.map(r=>r.map(v=>'"'+String(v??'').replaceAll('"','""')+'"').join(',')).join('\n');
     const url=URL.createObjectURL(new Blob([csv],{type:'text/csv;charset=utf-8'}));const a=document.createElement('a');a.href=url;a.download='fal_historical_results.csv';a.click();URL.revokeObjectURL(url);
   }
@@ -288,10 +313,19 @@ function App(){
           <div className="market-card"><span>O/U 2.5 BRIER SCORE ↓</span><b>{fmt(backtest.ouBrier,4)}</b></div>
         </div>
         <p className="muted tiny">Log loss dan Brier score makin rendah makin baik. Hit rate hanya proporsi tebakan yang tepat, bukan ukuran kalibrasi. Angka ini evaluasi historis, bukan jaminan hasil mendatang.</p>
+        <h4 className="backtest-heading">Simulasi ROI berbasis odds historis</h4>
+        {backtest.bets>0?<div className="backtest-grid">
+          <div className="market-card"><span>JUMLAH BET</span><b>{backtest.bets.toLocaleString('id-ID')}</b></div>
+          <div className="market-card"><span>WIN RATE</span><b>{fmt(backtest.winRate*100,2)}%</b></div>
+          <div className="market-card"><span>ROI / YIELD</span><b className={backtest.roi>=0?'positive':'negative'}>{backtest.roi>=0?'+':''}{fmt(backtest.roi*100,2)}%</b></div>
+          <div className="market-card"><span>PROFIT / LOSS</span><b className={backtest.profitUnits>=0?'positive':'negative'}>{backtest.profitUnits>=0?'+':''}{fmt(backtest.profitUnits,2)} unit</b></div>
+          <div className="market-card"><span>RATA-RATA ODDS</span><b>{fmt(backtest.avgOdds,2)}</b></div>
+          <div className="market-card"><span>RATA-RATA EV SAAT ENTRY</span><b>{fmt(backtest.avgEv*100,2)}%</b></div>
+        </div>:<div className="disclaimer">Belum ada taruhan yang memenuhi syarat. Pastikan CSV historis memiliki odds valid di atas 1.00 untuk 1X2 dan/atau Over/Under 2.5. Strategi simulasi mengambil maksimal satu pilihan dengan EV tertinggi per pertandingan dan mensyaratkan EV di atas 3%.</div>}
         <h4 className="backtest-heading">Contoh pertandingan yang diuji</h4>
         <div className="table-wrap"><table><thead><tr><th>TANGGAL</th><th>PERTANDINGAN</th><th>SKOR</th><th>PREDIKSI 1X2</th><th>PROBABILITAS</th></tr></thead><tbody>{backtest.examples.map((m,i)=><tr key={i}><td>{m.date}</td><td>{m.home} vs {m.away}</td><td>{m.score}</td><td>{m.predicted}</td><td>{fmt(m.confidence*100,1)}%</td></tr>)}</tbody></table></div>
       </>}
-      <div className="disclaimer">Catatan: backtest ini belum menghitung ROI/yield karena dataset belum memuat odds historis. Model memakai rho tetap 0.06 dan estimator lambda yang saat ini tersedia. Hasil dapat berubah mengikuti kelengkapan, kualitas, dan urutan data.</div>
+      <div className="disclaimer">Catatan ROI: simulasi memakai odds historis yang diimpor, taruhan flat 1 unit, maksimal satu pilihan EV tertinggi per pertandingan, dan ambang EV di atas 3%. Belum memperhitungkan limit bandar, perubahan odds, komisi, closing-line value, atau biaya transaksi. Hasil historis bukan jaminan keuntungan. Model memakai rho tetap 0.06.</div>
     </section>}
     {tab==='database'&&<section className="panel"><div className="panel-head"><div><div className="eyebrow">LOCAL DATASET</div><h3>Match database <span className="count">{matches.length}</span></h3></div><div className="button-row"><label className="secondary file-btn">Import CSV<input type="file" accept=".csv,text/csv" onChange={importCsv}/></label><button className="secondary" onClick={exportCsv}>Export CSV ↓</button></div></div><div className="panel-subhead"><h3>Historical results <span className="count">{history.length}</span></h3><div className="button-row"><label className="secondary file-btn">Import historical CSV<input type="file" accept=".csv,text/csv" onChange={importHistoryCsv}/></label><button className="secondary" onClick={exportHistoryCsv} disabled={!history.length}>Export history ↓</button></div></div><p className="muted tiny">Format: date, league (opsional), home_team, away_team, home_goals, away_goals. Mendukung juga FTHG dan FTAG.</p>{history.length?<div className="history-list">{history.slice(-8).reverse().map(m=><div className="history-row" key={m.id}><span>{m.date||"—"}</span><b>{m.home}</b><strong>{m.hg} - {m.ag}</strong><b>{m.away}</b></div>)}</div>:<Empty text="Belum ada hasil historis. Impor CSV untuk membangun basis data performa tim."/>}<div className="divider-line"/>{matches.length?<MatchTable rows={matches}/>:<Empty text="Database masih kosong. Simpan analisis atau impor CSV untuk mulai mengisi."/>}<p className="muted tiny">Data tersimpan di browser/perangkat ini. Ekspor CSV secara berkala untuk backup.</p></section>}
     {tab==='tools'&&<section className="panel"><div className="eyebrow">VALUE & STAKING</div><h3>Expected Value & Kelly</h3><p className="muted">Contoh kalkulator untuk pilihan Over 2.5 berdasarkan probabilitas model.</p><div className="form-grid"><Field label="ODDS DECIMAL"><input type="number" min="1.01" step=".01" value={odds} onChange={e=>setOdds(e.target.value)}/></Field><Field label="STAKE / BANKROLL (IDR)"><input type="number" min="0" step="1000" value={stake} onChange={e=>setStake(e.target.value)}/></Field></div><div className="tool-results"><div><span>MODEL PROBABILITY · OVER 2.5</span><b>{fmt(p*100,2)}%</b></div><div><span>EXPECTED VALUE</span><b className={ev>=0?'positive':'negative'}>{ev>=0?'+':''}{fmt(ev*100,2)}%</b></div><div><span>FULL KELLY</span><b>{fmt(kelly*100,2)}%</b></div><div><span>FULL KELLY STAKE</span><b>Rp {Math.round(kelly*Number(stake)).toLocaleString('id-ID')}</b></div></div><div className="disclaimer">EV positif bukan jaminan hasil. Estimasi ini sangat bergantung pada kualitas lambda dan probabilitas model. Pertimbangkan fractional Kelly dan batas risiko; jangan mempertaruhkan dana yang tidak siap hilang.</div></section>}
