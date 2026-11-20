@@ -1,0 +1,6 @@
+{
+  "appId": "com.footballanalytics.lab",
+  "appName": "Football Analytics Lab",
+  "webDir": "dist",
+  "bundledWebRuntime": false
+}
