@@ -17,7 +17,7 @@ const clamp = (n, a, b) => Math.max(a, Math.min(b, n));
 function factorial(n){ let x=1; for(let i=2;i<=n;i++) x*=i; return x; }
 function pois(k, lambda){ return Math.exp(-lambda) * Math.pow(lambda,k) / factorial(k); }
 function calculate(lh, la, rho=0.06){
-  const max=10; let home=0,draw=0,away=0,over25=0,under25=0,score=[],total=0;
+  const max=10; let home=0,draw=0,away=0,total=0,score=[];
   for(let h=0;h<=max;h++) for(let a=0;a<=max;a++){
     let tau=1;
     if(h===0&&a===0) tau=1-(lh*la*rho);
@@ -28,11 +28,13 @@ function calculate(lh, la, rho=0.06){
     score.push({h,a,p}); total+=p;
   }
   score=score.map(x=>({...x,p:x.p/total}));
-  for(const x of score){
-    if(x.h>x.a) home+=x.p; else if(x.h===x.a) draw+=x.p; else away+=x.p;
-    if(x.h+x.a>=3) over25+=x.p; else under25+=x.p;
-  }
-  return {home,draw,away,over25,under25,score:score.sort((x,y)=>y.p-x.p).slice(0,5)};
+  const probability=fn=>score.reduce((sum,x)=>sum+(fn(x)?x.p:0),0);
+  for(const x of score){if(x.h>x.a)home+=x.p;else if(x.h===x.a)draw+=x.p;else away+=x.p;}
+  const totals=[0.5,1.5,2.5,3.5,4.5,5.5].map(line=>({line,over:probability(x=>x.h+x.a>line),under:probability(x=>x.h+x.a<line)}));
+  const teamTotals=side=>[0.5,1.5,2.5].map(line=>({line,over:probability(x=>x[side]>line),under:probability(x=>x[side]<line)}));
+  const handicaps=[-1.5,-1,-0.5,0,0.5,1,1.5].map(line=>({line,win:probability(x=>x.h+line>x.a),push:probability(x=>x.h+line===x.a),lose:probability(x=>x.h+line<x.a)}));
+  const bttsYes=probability(x=>x.h>0&&x.a>0), odd=probability(x=>(x.h+x.a)%2===1);
+  return {home,draw,away,doubleChance:{homeDraw:home+draw,homeAway:home+away,drawAway:draw+away},totals,teamTotals:{home:teamTotals('h'),away:teamTotals('a')},handicaps,btts:{yes:bttsYes,no:1-bttsYes},goals:{odd,even:1-odd},score:score.sort((x,y)=>y.p-x.p).slice(0,5)};
 }
 
 function parseCsvRows(text){
@@ -144,13 +146,6 @@ function App(){
       }catch{setNotice('CSV historis tidak terbaca.');}
     };reader.readAsText(file);e.target.value='';
   }
-  function autoLambda(){
-    if(!home||!away){setNotice('Pilih tim kandang dan tandang dulu.');return;}
-    const estimate=estimateLambdas(history,home,away);
-    if(!estimate){setNotice('Butuh minimal 20 hasil pertandingan valid.');return;}
-    setLh(Number(estimate.home.toFixed(2)));setLa(Number(estimate.away.toFixed(2)));
-    setNotice('Lambda otomatis dihitung dari '+estimate.sample+' pertandingan historis.');setTimeout(()=>setNotice(''),3500);
-  }
 
   function exportHistoryCsv(){
     const rows=[['date','league','home_team','away_team','home_goals','away_goals'],...history.map(m=>[m.date,m.league,m.home,m.away,m.hg,m.ag])];
@@ -187,9 +182,20 @@ function App(){
       <section className="panel"><div className="panel-head"><div><div className="eyebrow">QUICK ACCESS</div><h3>Mulai analisis</h3></div><button className="primary" onClick={()=>setTab('analysis')}>Buka Match Analysis ↗</button></div><p className="muted">Masukkan estimasi gol (lambda) kandang dan tandang untuk menghitung probabilitas skor, 1X2, dan Over/Under 2.5.</p></section>
       <section className="panel"><div className="panel-head"><h3>Analisis terbaru</h3><button className="text-btn" onClick={()=>setTab('database')}>Lihat database →</button></div>{matches.length?<MatchTable rows={matches.slice(0,5)}/>:<Empty text="Belum ada analisis tersimpan. Mulai dari Match Analysis."/>}</section></>}
     {tab==='analysis'&&<><section className="panel"><div className="panel-head"><div><div className="eyebrow">PRE-MATCH MODEL</div><h3>Input pertandingan</h3></div><span className="tag">DIXON-COLES · v1</span></div><div className="form-grid"><Field label="HOME TEAM"><select value={home} onChange={e=>setHome(e.target.value)}><option value="">Pilih tim kandang</option>{Object.entries(TEAM_GROUPS).map(([league,teams])=><optgroup key={league} label={league}>{teams.map(team=><option key={team} value={team}>{team}</option>)}</optgroup>)}</select></Field><Field label="AWAY TEAM"><select value={away} onChange={e=>setAway(e.target.value)}><option value="">Pilih tim tandang</option>{Object.entries(TEAM_GROUPS).map(([league,teams])=><optgroup key={league} label={league}>{teams.map(team=><option key={team} value={team}>{team}</option>)}</optgroup>)}</select></Field><Field label="LAMBDA HOME" hint="Terisi otomatis dari data historis"><input type="number" value={lh} readOnly/></Field><Field label="LAMBDA AWAY" hint="Terisi otomatis dari data historis"><input type="number" value={la} readOnly/></Field><Field label="DIXON-COLES RHO" hint="Koreksi skor rendah · default 0.06"><input type="number" min="-0.2" max="0.2" step=".01" value={rho} onChange={e=>setRho(e.target.value)}/></Field></div><p className="muted tiny lambda-status">{lambdaStatus}</p><div className="button-row analysis-actions"><button className="primary save-btn" onClick={saveMatch}>Simpan analisis</button></div></section>
-      <section className="results-grid"><div className="panel"><div className="eyebrow">1X2 PROBABILITY</div><h3>Match outcome</h3><div className="prob-row"><Prob label="HOME" value={result.home}/><Prob label="DRAW" value={result.draw}/><Prob label="AWAY" value={result.away}/></div><div className="bar"><i style={{width:(result.home*100)+'%'}}/><i style={{width:(result.draw*100)+'%'}}/><i style={{width:(result.away*100)+'%'}}/></div><div className="ou-row"><div><span>OVER 2.5</span><b>{fmt(result.over25*100,2)}%</b></div><div><span>UNDER 2.5</span><b>{fmt(result.under25*100,2)}%</b></div></div></div>
+      <section className="results-grid"><div className="panel"><div className="eyebrow">1X2 PROBABILITY</div><h3>Match outcome</h3><div className="prob-row"><Prob label="HOME" value={result.home}/><Prob label="DRAW" value={result.draw}/><Prob label="AWAY" value={result.away}/></div><div className="bar"><i style={{width:(result.home*100)+'%'}}/><i style={{width:(result.draw*100)+'%'}}/><i style={{width:(result.away*100)+'%'}}/></div><div className="ou-row"><div><span>OVER 2.5</span><b>{fmt(result.totals[2].over*100,2)}%</b></div><div><span>UNDER 2.5</span><b>{fmt(result.totals[2].under*100,2)}%</b></div></div></div>
       <div className="panel"><div className="eyebrow">MOST LIKELY SCORES</div><h3>Correct score</h3>{result.score.map((s,i)=><div className="score-line" key={i}><span className="rank">0{i+1}</span><b>{s.h} - {s.a}</b><div className="mini-track"><i style={{width:(s.p/result.score[0].p*100)+'%'}}/></div><strong>{fmt(s.p*100,2)}%</strong></div>)}</div></section>
-      <section className="disclaimer">Model ini memakai Poisson dengan koreksi Dixon-Coles untuk skor rendah (0-0, 0-1, 1-0, 1-1). Lambda dapat dimasukkan manual atau diestimasi dari hasil historis yang diimpor; estimator otomatis masih baseline sederhana. Rho perlu dikalibrasi dari data historis. Distribusi skor dibatasi 0–10 gol per tim dan dinormalisasi kembali.</section></>}
+      <section className="panel market-panel"><div className="panel-head"><div><div className="eyebrow">EXPANDED MARKET PROBABILITIES</div><h3>Pasar probabilitas</h3></div><span className="tag">MODEL DISTRIBUTION</span></div>
+        <div className="market-grid">
+          <div className="market-card"><h4>Double chance</h4>{[['1X',result.doubleChance.homeDraw],['12',result.doubleChance.homeAway],['X2',result.doubleChance.drawAway]].map(([label,value])=><div className="market-line" key={label}><span>{label}</span><b>{fmt(value*100,2)}%</b></div>)}</div>
+          <div className="market-card"><h4>Both teams to score</h4>{[['BTTS Yes',result.btts.yes],['BTTS No',result.btts.no]].map(([label,value])=><div className="market-line" key={label}><span>{label}</span><b>{fmt(value*100,2)}%</b></div>)}</div>
+          <div className="market-card"><h4>Total goals · Over / Under</h4>{result.totals.map(x=><div className="market-line" key={x.line}><span>{x.line.toFixed(1)} · O {fmt(x.over*100,1)}% / U {fmt(x.under*100,1)}%</span><b>{fmt(x.over*100,1)}%</b></div>)}</div>
+          <div className="market-card"><h4>Home team goals</h4>{result.teamTotals.home.map(x=><div className="market-line" key={x.line}><span>O/U {x.line.toFixed(1)}</span><b>{fmt(x.over*100,2)}% / {fmt(x.under*100,2)}%</b></div>)}</div>
+          <div className="market-card"><h4>Away team goals</h4>{result.teamTotals.away.map(x=><div className="market-line" key={x.line}><span>O/U {x.line.toFixed(1)}</span><b>{fmt(x.over*100,2)}% / {fmt(x.under*100,2)}%</b></div>)}</div>
+          <div className="market-card"><h4>Odd / Even goals</h4>{[['Odd',result.goals.odd],['Even',result.goals.even]].map(([label,value])=><div className="market-line" key={label}><span>{label}</span><b>{fmt(value*100,2)}%</b></div>)}</div>
+        </div>
+        <div className="market-card handicap-card"><h4>Asian handicap · perspektif tim kandang</h4><div className="handicap-list">{result.handicaps.map(x=><div className="handicap-line" key={x.line}><b>{x.line>0?'+':''}{x.line.toFixed(1)}</b><span>Menang {fmt(x.win*100,1)}%</span><span>Push {fmt(x.push*100,1)}%</span><span>Kalah {fmt(x.lose*100,1)}%</span></div>)}</div></div>
+      </section>
+      <section className="disclaimer">Semua pasar dihitung dari distribusi skor Poisson dengan koreksi Dixon-Coles. Asian handicap menampilkan peluang menang/push/kalah untuk garis handicap tim kandang. Garis total dan team total yang ditampilkan adalah garis setengah gol, sehingga tidak memiliki hasil push. Distribusi skor dibatasi 0–10 gol per tim dan dinormalisasi kembali; hasil bukan jaminan.</section></>}
     {tab==='database'&&<section className="panel"><div className="panel-head"><div><div className="eyebrow">LOCAL DATASET</div><h3>Match database <span className="count">{matches.length}</span></h3></div><div className="button-row"><label className="secondary file-btn">Import CSV<input type="file" accept=".csv,text/csv" onChange={importCsv}/></label><button className="secondary" onClick={exportCsv}>Export CSV ↓</button></div></div><div className="panel-subhead"><h3>Historical results <span className="count">{history.length}</span></h3><div className="button-row"><label className="secondary file-btn">Import historical CSV<input type="file" accept=".csv,text/csv" onChange={importHistoryCsv}/></label><button className="secondary" onClick={exportHistoryCsv} disabled={!history.length}>Export history ↓</button></div></div><p className="muted tiny">Format: date, league (opsional), home_team, away_team, home_goals, away_goals. Mendukung juga FTHG dan FTAG.</p>{history.length?<div className="history-list">{history.slice(-8).reverse().map(m=><div className="history-row" key={m.id}><span>{m.date||"—"}</span><b>{m.home}</b><strong>{m.hg} - {m.ag}</strong><b>{m.away}</b></div>)}</div>:<Empty text="Belum ada hasil historis. Impor CSV untuk membangun basis data performa tim."/>}<div className="divider-line"/>{matches.length?<MatchTable rows={matches}/>:<Empty text="Database masih kosong. Simpan analisis atau impor CSV untuk mulai mengisi."/>}<p className="muted tiny">Data tersimpan di browser/perangkat ini. Ekspor CSV secara berkala untuk backup.</p></section>}
     {tab==='tools'&&<section className="panel"><div className="eyebrow">VALUE & STAKING</div><h3>Expected Value & Kelly</h3><p className="muted">Contoh kalkulator untuk pilihan Over 2.5 berdasarkan probabilitas model.</p><div className="form-grid"><Field label="ODDS DECIMAL"><input type="number" min="1.01" step=".01" value={odds} onChange={e=>setOdds(e.target.value)}/></Field><Field label="STAKE / BANKROLL (IDR)"><input type="number" min="0" step="1000" value={stake} onChange={e=>setStake(e.target.value)}/></Field></div><div className="tool-results"><div><span>MODEL PROBABILITY · OVER 2.5</span><b>{fmt(p*100,2)}%</b></div><div><span>EXPECTED VALUE</span><b className={ev>=0?'positive':'negative'}>{ev>=0?'+':''}{fmt(ev*100,2)}%</b></div><div><span>FULL KELLY</span><b>{fmt(kelly*100,2)}%</b></div><div><span>FULL KELLY STAKE</span><b>Rp {Math.round(kelly*Number(stake)).toLocaleString('id-ID')}</b></div></div><div className="disclaimer">EV positif bukan jaminan hasil. Estimasi ini sangat bergantung pada kualitas lambda dan probabilitas model. Pertimbangkan fractional Kelly dan batas risiko; jangan mempertaruhkan dana yang tidak siap hilang.</div></section>}
     <footer>FOOTBALL ANALYTICS LAB <span>Built for disciplined analysis · {new Date().getFullYear()}</span></footer></main>
