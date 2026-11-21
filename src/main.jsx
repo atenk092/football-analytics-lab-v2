@@ -219,15 +219,19 @@ function App(){
       try{
         const rows=parseCsvRows(String(reader.result||''));const headers=(rows.shift()||[]).map(x=>x.replace(/^\uFEFF/,'').toLowerCase().trim());
         const pick=(r,names)=>{const i=headers.findIndex(h=>names.includes(h));return i<0?'':r[i]||'';};
-        const added=[];
+        const required=[['date'],['home_team','hometeam','home'],['away_team','awayteam','away'],['home_goals','fthg','hg'],['away_goals','ftag','ag']];
+        if(required.some(names=>!headers.some(h=>names.includes(h))))throw new Error('Header CSV wajib: date, home_team, away_team, home_goals, away_goals.');
+        const added=[];let invalidRows=0,invalidOdds=0;
         for(const row of rows){
-          const home=pick(row,['home_team','hometeam','home']);const away=pick(row,['away_team','awayteam','away']);
+          const date=pick(row,['date']);const home=pick(row,['home_team','hometeam','home']);const away=pick(row,['away_team','awayteam','away']);
           const hgRaw=pick(row,['home_goals','fthg','hg']);const agRaw=pick(row,['away_goals','ftag','ag']);
-          if(!home||!away||hgRaw===''||agRaw==='')continue;
+          const dateMatch=/^(\\d{4})-(\\d{2})-(\\d{2})$/.exec(date);
+          const validDate=!!dateMatch&&(()=>{const d=new Date(date+'T00:00:00Z');return !Number.isNaN(d.getTime())&&d.toISOString().slice(0,10)===date;})();
+          if(!validDate||!home||!away||home.toLowerCase()===away.toLowerCase()||hgRaw===''||agRaw===''){invalidRows++;continue;}
           const hg=Number(hgRaw),ag=Number(agRaw);
-          if(!Number.isInteger(hg)||!Number.isInteger(ag)||hg<0||ag<0)continue;
-          const readOdd=names=>{const raw=pick(row,names);const value=Number(raw);return raw!==''&&Number.isFinite(value)&&value>1?value:null;};
-          added.push({id:'hist-'+Date.now()+'-'+added.length,date:pick(row,['date']),league:pick(row,['league']),home,away,hg,ag,
+          if(!Number.isInteger(hg)||!Number.isInteger(ag)||hg<0||ag<0||hg>30||ag>30){invalidRows++;continue;}
+          const readOdd=names=>{const raw=pick(row,names);if(raw==='')return null;const value=Number(raw);if(Number.isFinite(value)&&value>1)return value;invalidOdds++;return null;};
+          added.push({id:'hist-'+Date.now()+'-'+added.length,date,league:pick(row,['league']),home,away,hg,ag,
             oddsHome:readOdd(['odds_home','home_odds','odds1','odd_home']),
             oddsDraw:readOdd(['odds_draw','draw_odds','oddsx','odd_draw']),
             oddsAway:readOdd(['odds_away','away_odds','odds2','odd_away']),
@@ -241,7 +245,7 @@ function App(){
           next[i]=merged;
         }else{indexByKey.set(k,next.length);next.push(m);newCount++;}}
         next.sort((a,b)=>(a.date||'').localeCompare(b.date||''));setHistory(next);localStorage.setItem('fal_history',JSON.stringify(next));
-        setNotice(newCount+' hasil baru; '+enriched+' data odds ditambahkan ke pertandingan lama.');setTimeout(()=>setNotice(''),3500);
+        setNotice(newCount+' hasil baru; '+enriched+' odds diperbarui; '+invalidRows+' baris ditolak; '+invalidOdds+' nilai odds tidak valid diabaikan.');setTimeout(()=>setNotice(''),5000);
       }catch{setNotice('CSV historis tidak terbaca.');}
     };reader.readAsText(file);e.target.value='';
   }
