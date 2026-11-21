@@ -1,9 +1,21 @@
 import React, { useMemo, useState } from 'react';
+import { Capacitor, CapacitorHttp } from '@capacitor/core';
 
-const DEFAULT_API_BASE = 'https://flourishing-sundae-4d9deb.netlify.app/.netlify/functions/football';
+const API_BASE = 'https://v3.football.api-sports.io';
+const API_PATHS = {
+  leagues: '/leagues',
+  teams: '/teams',
+  fixtures: '/fixtures',
+  events: '/fixtures/events',
+  statistics: '/fixtures/statistics',
+  odds: '/odds',
+  liveOdds: '/odds/live'
+};
 
 export default function ApiData({ onTeamsLoaded, onSelectTeams }) {
-  const base = (import.meta.env.VITE_FAL_API_BASE || DEFAULT_API_BASE).replace(/\/$/, '');
+  const [apiKey, setApiKey] = useState(() => localStorage.getItem('fal_api_football_key') || '');
+  const [keyDraft, setKeyDraft] = useState(() => localStorage.getItem('fal_api_football_key') || '');
+  const [keySaved, setKeySaved] = useState(!!localStorage.getItem('fal_api_football_key'));
   const [search, setSearch] = useState('Premier League');
   const [season, setSeason] = useState(String(new Date().getFullYear()));
   const [leagueId, setLeagueId] = useState('');
@@ -16,16 +28,43 @@ export default function ApiData({ onTeamsLoaded, onSelectTeams }) {
   const [error, setError] = useState('');
   const [message, setMessage] = useState('');
 
+  function saveApiKey() {
+    const clean = keyDraft.trim();
+    if (!clean) { setError('Masukkan API key terlebih dahulu.'); return; }
+    localStorage.setItem('fal_api_football_key', clean);
+    setApiKey(clean);
+    setKeySaved(true);
+    setError('');
+    setMessage('API key tersimpan di perangkat ini.');
+  }
+
+  function clearApiKey() {
+    localStorage.removeItem('fal_api_football_key');
+    setApiKey('');
+    setKeyDraft('');
+    setKeySaved(false);
+    setMessage('API key lokal dihapus dari perangkat ini.');
+  }
+
   async function call(action, params = {}) {
-    const url = new URL(base);
-    url.searchParams.set('action', action);
+    if (!apiKey) throw new Error('Masukkan dan simpan API key API-Football terlebih dahulu.');
+    const path = API_PATHS[action];
+    if (!path) throw new Error('Endpoint API tidak dikenal.');
+    const url = new URL(API_BASE + path);
     Object.entries(params).forEach(([key, value]) => {
       if (value !== '' && value !== null && value !== undefined) url.searchParams.set(key, String(value));
     });
-    const response = await fetch(url.toString(), { headers: { Accept: 'application/json' } });
-    const data = await response.json();
-    if (!response.ok || data.errors && Object.keys(data.errors).length) {
-      const detail = data.error || Object.values(data.errors || {}).filter(Boolean).join(', ') || ('HTTP ' + response.status);
+    const headers = { Accept: 'application/json', 'x-apisports-key': apiKey };
+    let response;
+    if (Capacitor.isNativePlatform()) {
+      response = await CapacitorHttp.get({ url: url.toString(), headers });
+    } else {
+      response = await fetch(url.toString(), { headers });
+      response = { status: response.status, data: await response.json() };
+    }
+    const data = response.data;
+    if (response.status < 200 || response.status >= 300 || data?.errors && Object.keys(data.errors).length) {
+      const detail = data?.message || data?.error || Object.values(data?.errors || {}).filter(Boolean).join(', ') || ('HTTP ' + response.status);
       throw new Error(detail);
     }
     return data;
@@ -87,8 +126,13 @@ export default function ApiData({ onTeamsLoaded, onSelectTeams }) {
   const status = x => x.fixture?.status?.short === 'NS' ? new Date(x.fixture.date).toLocaleString('id-ID', { dateStyle: 'short', timeStyle: 'short' }) : (x.fixture?.status?.long || x.fixture?.status?.short || '—');
 
   return <section className="panel">
-    <div className="panel-head"><div><div className="eyebrow">LIVE DATA PROVIDER</div><h3>API-Football connection</h3></div><span className="tag">SERVER-SIDE KEY</span></div>
-    <p className="muted">Hubungkan kompetisi, daftar tim, jadwal, dan skor live. API key tidak dimasukkan ke aplikasi; permintaan melewati Netlify Function.</p>
+    <div className="panel-head"><div><div className="eyebrow">LIVE DATA PROVIDER</div><h3>API-Football connection</h3></div><span className="tag">ANDROID DIRECT API</span></div>
+    <p className="muted">Aplikasi Android menghubungi API-Football langsung. API key disimpan lokal di perangkat dan tidak perlu Netlify.</p>
+    <div className="form-grid">
+      <label className="field"><span>API-FOOTBALL API KEY</span><input type="password" autoComplete="off" value={keyDraft} onChange={e=>{setKeyDraft(e.target.value);setKeySaved(false);}} placeholder="Tempel API key dari dashboard"/></label>
+      <div className="field"><span>STATUS KEY</span><small>{keySaved && apiKey ? 'Tersimpan di perangkat ini' : 'Belum tersimpan'}</small><div className="button-row"><button className="primary" onClick={saveApiKey}>Simpan key</button>{keySaved&&<button className="secondary" onClick={clearApiKey}>Hapus</button>}</div></div>
+    </div>
+    <div className="disclaimer">PENTING: key tersimpan di penyimpanan lokal aplikasi, bukan penyimpanan terenkripsi. Jangan bagikan APK yang berisi key, dan jangan commit key ke GitHub. Khusus pemakaian pribadi. Request Android memakai native HTTP Capacitor untuk menghindari batasan CORS WebView.</div>
     <div className="form-grid">
       <label className="field"><span>CARI KOMPETISI</span><input value={search} onChange={e=>setSearch(e.target.value)} placeholder="Premier League, La Liga..."/></label>
       <label className="field"><span>MUSIM (TAHUN)</span><input type="number" min="2000" max="2100" value={season} onChange={e=>setSeason(e.target.value)}/></label>
